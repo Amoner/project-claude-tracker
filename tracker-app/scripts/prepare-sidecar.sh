@@ -16,7 +16,7 @@ workspace_root="$(cd .. && pwd)"
 
 (cd "${workspace_root}" && cargo build --release -p tracker-cli)
 
-triple="$(rustc --print target-triple)"
+triple="$(rustc -vV | sed -n 's/^host: //p')"
 if [[ -z "${triple}" ]]; then
     echo "could not determine host triple from rustc" >&2
     exit 1
