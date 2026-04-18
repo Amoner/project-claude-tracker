@@ -8,6 +8,8 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -38,7 +40,9 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    needs: build-macos  # release must exist before Windows uploads to it
+    needs: build-macos
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
