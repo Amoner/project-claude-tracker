@@ -16,14 +16,21 @@ workspace_root="$(cd .. && pwd)"
 
 (cd "${workspace_root}" && cargo build --release -p tracker-cli)
 
-triple="$(rustc -vV | sed -n 's/^host: //p')"
+triple="$(rustc --print target-triple)"
 if [[ -z "${triple}" ]]; then
     echo "could not determine host triple from rustc" >&2
     exit 1
 fi
 
 mkdir -p src-tauri/bin
-cp -f "${workspace_root}/target/release/tracker-cli" \
-    "src-tauri/bin/tracker-cli-${triple}"
 
-echo "sidecar staged at src-tauri/bin/tracker-cli-${triple}"
+# On Windows the binary has a .exe suffix; on Unix it does not.
+if [[ -f "${workspace_root}/target/release/tracker-cli.exe" ]]; then
+    cp -f "${workspace_root}/target/release/tracker-cli.exe" \
+        "src-tauri/bin/tracker-cli-${triple}.exe"
+    echo "sidecar staged at src-tauri/bin/tracker-cli-${triple}.exe"
+else
+    cp -f "${workspace_root}/target/release/tracker-cli" \
+        "src-tauri/bin/tracker-cli-${triple}"
+    echo "sidecar staged at src-tauri/bin/tracker-cli-${triple}"
+fi

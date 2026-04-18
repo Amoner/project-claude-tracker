@@ -1,5 +1,4 @@
 //! Launch a terminal emulator at a project cwd and run a command in it.
-//! macOS-only for v1 — non-macOS builds return an explicit error.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -8,13 +7,20 @@ use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terminal {
+    // macOS
     Ghostty,
+    TerminalApp,
+    // Cross-platform
     WezTerm,
     Alacritty,
     Kitty,
-    TerminalApp,
+    // Windows
+    WindowsTerminal,
+    PowerShell,
+    Cmd,
 }
 
+#[cfg(target_os = "macos")]
 const PRIORITY: &[Terminal] = &[
     Terminal::Ghostty,
     Terminal::WezTerm,
@@ -22,6 +28,18 @@ const PRIORITY: &[Terminal] = &[
     Terminal::Kitty,
     Terminal::TerminalApp,
 ];
+
+#[cfg(target_os = "windows")]
+const PRIORITY: &[Terminal] = &[
+    Terminal::WindowsTerminal,
+    Terminal::WezTerm,
+    Terminal::Alacritty,
+    Terminal::PowerShell,
+    Terminal::Cmd,
+];
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const PRIORITY: &[Terminal] = &[];
 
 impl Terminal {
     pub fn priority() -> &'static [Terminal] {
@@ -35,6 +53,9 @@ impl Terminal {
             Terminal::Alacritty => "alacritty",
             Terminal::Kitty => "kitty",
             Terminal::TerminalApp => "terminal_app",
+            Terminal::WindowsTerminal => "windows_terminal",
+            Terminal::PowerShell => "powershell",
+            Terminal::Cmd => "cmd",
         }
     }
 
@@ -45,6 +66,9 @@ impl Terminal {
             "alacritty" => Some(Terminal::Alacritty),
             "kitty" => Some(Terminal::Kitty),
             "terminal_app" => Some(Terminal::TerminalApp),
+            "windows_terminal" => Some(Terminal::WindowsTerminal),
+            "powershell" => Some(Terminal::PowerShell),
+            "cmd" => Some(Terminal::Cmd),
             _ => None,
         }
     }
@@ -56,28 +80,44 @@ impl Terminal {
             Terminal::Alacritty => "Alacritty",
             Terminal::Kitty => "kitty",
             Terminal::TerminalApp => "Terminal.app",
+            Terminal::WindowsTerminal => "Windows Terminal",
+            Terminal::PowerShell => "PowerShell",
+            Terminal::Cmd => "Command Prompt",
         }
     }
 
     pub fn is_installed(self) -> bool {
         match self {
             Terminal::TerminalApp => cfg!(target_os = "macos"),
+            // cmd.exe and PowerShell are always present on Windows
+            Terminal::Cmd | Terminal::PowerShell => cfg!(target_os = "windows"),
             other => other.binary().is_some(),
         }
     }
 
-    /// Locate the terminal's own CLI binary — `$PATH` first, then the macOS
-    /// app bundle's `Contents/MacOS/<bin>`. Returns `None` for Terminal.app
-    /// (which has no useful CLI; it's driven via AppleScript).
     fn binary(self) -> Option<PathBuf> {
-        let (bin, bundle) = match self {
-            Terminal::Ghostty => ("ghostty", "Ghostty.app"),
-            Terminal::WezTerm => ("wezterm", "WezTerm.app"),
-            Terminal::Alacritty => ("alacritty", "Alacritty.app"),
-            Terminal::Kitty => ("kitty", "kitty.app"),
-            Terminal::TerminalApp => return None,
-        };
-        locate_binary(bin, bundle)
+        match self {
+            // Driven via AppleScript / built-in shell, no useful CLI binary
+            Terminal::TerminalApp | Terminal::Cmd => None,
+            #[cfg(target_os = "macos")]
+            Terminal::Ghostty => locate_binary("ghostty", "Ghostty.app"),
+            #[cfg(target_os = "macos")]
+            Terminal::WezTerm => locate_binary("wezterm", "WezTerm.app"),
+            #[cfg(target_os = "macos")]
+            Terminal::Alacritty => locate_binary("alacritty", "Alacritty.app"),
+            #[cfg(target_os = "macos")]
+            Terminal::Kitty => locate_binary("kitty", "kitty.app"),
+            #[cfg(target_os = "windows")]
+            Terminal::WezTerm => which_on_path("wezterm.exe"),
+            #[cfg(target_os = "windows")]
+            Terminal::Alacritty => which_on_path("alacritty.exe"),
+            #[cfg(target_os = "windows")]
+            Terminal::WindowsTerminal => which_on_path("wt.exe"),
+            #[cfg(target_os = "windows")]
+            Terminal::PowerShell => which_on_path("powershell.exe"),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
     }
 
     /// Installed terminals in `PRIORITY` order.
@@ -87,10 +127,13 @@ impl Terminal {
 
     /// The best terminal to launch when the user hasn't set a preference.
     pub fn default_installed() -> Terminal {
-        Self::detect_all()
-            .into_iter()
-            .next()
-            .unwrap_or(Terminal::TerminalApp)
+        Self::detect_all().into_iter().next().unwrap_or_else(|| {
+            if cfg!(target_os = "windows") {
+                Terminal::Cmd
+            } else {
+                Terminal::TerminalApp
+            }
+        })
     }
 
     pub fn launch(self, cwd: &Path, cmd: &str) -> Result<()> {
@@ -99,25 +142,21 @@ impl Terminal {
     }
 
     fn build_command(self, cwd: &Path, cmd: &str) -> Result<Command> {
-        if !cfg!(target_os = "macos") {
-            bail!("terminal launch is only supported on macOS (v1)");
-        }
         let cwd_str = cwd.to_string_lossy().into_owned();
-        // Always go via a login + interactive shell so `claude` resolves
-        // through the user's normal PATH (npm global, Homebrew, etc.).
-        // .zprofile handles login-only setups; .zshrc covers interactive ones.
+
+        // macOS: go via a login + interactive shell so `claude` resolves through
+        // the user's normal PATH (.zprofile for login-only, .zshrc for interactive).
+        #[cfg(target_os = "macos")]
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
         let c = match self {
+            #[cfg(target_os = "macos")]
             Terminal::Ghostty => {
-                // `ghostty +new-window` is Ghostty's CLI action: it connects to
-                // the running instance via IPC and exits without spawning a
-                // second GUI process. `open -na` was forcing a new instance that
-                // also opened its own default tab, producing 3 tabs total.
-                //
+                // `ghostty +new-window` is Ghostty's CLI action: connects to the
+                // running instance via IPC and exits without spawning a second GUI.
                 // `--command=STRING` is a single argv element that Ghostty
-                // shell-splits itself; passing `-e SHELL ARGS...` as separate
-                // elements caused extra tabs when the trailing args were
-                // misinterpreted as independent +new-window flags.
+                // shell-splits itself, avoiding the extra-tabs issue we saw when
+                // passing `-e SHELL ARGS...` as separate elements.
                 let bin = self
                     .binary()
                     .ok_or_else(|| anyhow!("ghostty binary not found"))?;
@@ -127,6 +166,7 @@ impl Terminal {
                     .arg(format!("--command={shell} -l -i -c {cmd}"));
                 c
             }
+            #[cfg(target_os = "macos")]
             Terminal::WezTerm => {
                 let bin = self
                     .binary()
@@ -139,6 +179,7 @@ impl Terminal {
                     .args(["-l", "-i", "-c", cmd]);
                 c
             }
+            #[cfg(target_os = "macos")]
             Terminal::Alacritty => {
                 let bin = self
                     .binary()
@@ -149,6 +190,7 @@ impl Terminal {
                     .args(["-l", "-i", "-c", cmd]);
                 c
             }
+            #[cfg(target_os = "macos")]
             Terminal::Kitty => {
                 let bin = self
                     .binary()
@@ -159,10 +201,8 @@ impl Terminal {
                     .args(["-l", "-i", "-c", cmd]);
                 c
             }
+            #[cfg(target_os = "macos")]
             Terminal::TerminalApp => {
-                // Terminal.app has no "open in dir with command" flag; drive it
-                // through AppleScript. Escape `\` and `"` in both the path and
-                // the command so the script literal stays intact.
                 let escaped_cwd = escape_applescript(&cwd_str);
                 let escaped_cmd = escape_applescript(cmd);
                 let script = format!(
@@ -172,11 +212,78 @@ impl Terminal {
                 c.args(["-e", &script]);
                 c
             }
+            #[cfg(target_os = "windows")]
+            Terminal::WindowsTerminal => {
+                let bin = self
+                    .binary()
+                    .ok_or_else(|| anyhow!("Windows Terminal (wt.exe) not found"))?;
+                let mut c = Command::new(bin);
+                // `--window new` ensures a fresh window rather than a new tab in
+                // whatever window happens to be focused.
+                c.args([
+                    "--window",
+                    "new",
+                    "new-tab",
+                    "--startingDirectory",
+                    &cwd_str,
+                    "--",
+                    "powershell.exe",
+                    "-NoExit",
+                    "-Command",
+                    cmd,
+                ]);
+                c
+            }
+            #[cfg(target_os = "windows")]
+            Terminal::WezTerm => {
+                let bin = self
+                    .binary()
+                    .ok_or_else(|| anyhow!("wezterm binary not found"))?;
+                let mut c = Command::new(bin);
+                c.args(["start", "--cwd", &cwd_str, "--", "powershell.exe", "-NoExit", "-Command", cmd]);
+                c
+            }
+            #[cfg(target_os = "windows")]
+            Terminal::Alacritty => {
+                let bin = self
+                    .binary()
+                    .ok_or_else(|| anyhow!("alacritty binary not found"))?;
+                let mut c = Command::new(bin);
+                c.args([
+                    "--working-directory",
+                    &cwd_str,
+                    "-e",
+                    "powershell.exe",
+                    "-NoExit",
+                    "-Command",
+                    cmd,
+                ]);
+                c
+            }
+            #[cfg(target_os = "windows")]
+            Terminal::PowerShell => {
+                // Single-quote the path and escape embedded single-quotes.
+                let safe_cwd = cwd_str.replace('\'', "''");
+                let ps_cmd = format!("Set-Location '{safe_cwd}'; {cmd}");
+                let mut c = Command::new("powershell.exe");
+                c.args(["-NoExit", "-Command", &ps_cmd]);
+                c
+            }
+            #[cfg(target_os = "windows")]
+            Terminal::Cmd => {
+                let batch_cmd = format!("cd /d \"{cwd_str}\" && {cmd}");
+                let mut c = Command::new("cmd.exe");
+                c.args(["/K", &batch_cmd]);
+                c
+            }
+            #[allow(unreachable_patterns)]
+            _ => bail!("terminal {:?} is not supported on this platform", self),
         };
         Ok(c)
     }
 }
 
+#[cfg(target_os = "macos")]
 fn locate_binary(bin: &str, app_bundle: &str) -> Option<PathBuf> {
     if let Some(p) = which_on_path(bin) {
         return Some(p);
@@ -195,13 +302,15 @@ fn locate_binary(bin: &str, app_bundle: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "macos")]
 fn escape_applescript(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn which_on_path(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|paths| {
-        paths.to_string_lossy().split(':').find_map(|p| {
+        let sep = if cfg!(target_os = "windows") { ';' } else { ':' };
+        paths.to_string_lossy().split(sep).find_map(|p| {
             let candidate = Path::new(p).join(name);
             candidate.is_file().then_some(candidate)
         })
@@ -230,8 +339,16 @@ mod tests {
     #[test]
     fn priority_order_stable() {
         let p = Terminal::priority();
-        assert_eq!(p.first().copied(), Some(Terminal::Ghostty));
-        assert_eq!(p.last().copied(), Some(Terminal::TerminalApp));
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(p.first().copied(), Some(Terminal::Ghostty));
+            assert_eq!(p.last().copied(), Some(Terminal::TerminalApp));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            assert_eq!(p.first().copied(), Some(Terminal::WindowsTerminal));
+            assert_eq!(p.last().copied(), Some(Terminal::Cmd));
+        }
     }
 
     #[test]
@@ -246,6 +363,15 @@ mod tests {
         let detected = Terminal::detect_all();
         assert!(detected.contains(&Terminal::TerminalApp));
         assert!(!detected.is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cmd_always_detected_on_windows() {
+        assert!(Terminal::Cmd.is_installed());
+        assert!(Terminal::PowerShell.is_installed());
+        let detected = Terminal::detect_all();
+        assert!(detected.contains(&Terminal::Cmd));
     }
 
     #[cfg(target_os = "macos")]
