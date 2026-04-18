@@ -1,0 +1,20 @@
+[package]
+name = "tracker-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tracker-cli"
+path = "src/main.rs"
+
+[dependencies]
+tracker-core = { path = "../tracker-core" }
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
