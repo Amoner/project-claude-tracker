@@ -190,12 +190,8 @@ fn upsert_event_hook(obj: &mut serde_json::Map<String, Value>, event: &str, cli_
     let Some(entries) = entries else {
         return;
     };
-    for entry in entries.iter_mut() {
-        if entry_is_ours(entry) {
-            *entry = new_entry.clone();
-            return;
-        }
-    }
+    // Remove ALL existing ours-entries, then push exactly one fresh one.
+    entries.retain(|entry| !entry_is_ours(entry));
     entries.push(new_entry);
 }
 
