@@ -56,6 +56,7 @@ export const api = {
   setPreferredTerminal: (terminal: string) =>
     invoke<null>("set_preferred_terminal", { terminal }),
   startClaude: (id: number) => invoke<null>("start_claude", { id }),
+  checkReleaseNotes: () => invoke<string | null>("check_release_notes"),
 };
 
 export type UpdateFields = {

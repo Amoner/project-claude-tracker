@@ -179,6 +179,7 @@ pub struct TerminalInfoDto {
 }
 
 const PREFERRED_TERMINAL_KEY: &str = "preferred_terminal";
+const SEEN_VERSION_KEY: &str = "seen_version";
 
 #[tauri::command]
 pub fn list_terminals() -> Vec<TerminalInfoDto> {
@@ -230,6 +231,21 @@ pub fn start_claude(state: Shared<'_>, id: i64) -> Result<(), String> {
         paths::append_log("terminal.log", &format!("start_claude err: {e:#}"));
         err(e)
     })
+}
+
+#[tauri::command]
+pub fn check_release_notes(
+    state: Shared<'_>,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    let version = app_handle.package_info().version.to_string();
+    let db = state.db.lock().map_err(err)?;
+    let seen = db.get_setting(SEEN_VERSION_KEY).map_err(err)?;
+    if seen.as_deref() == Some(version.as_str()) {
+        return Ok(None);
+    }
+    db.set_setting(SEEN_VERSION_KEY, &version).map_err(err)?;
+    Ok(Some(version))
 }
 
 #[tauri::command]

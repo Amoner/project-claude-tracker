@@ -46,6 +46,7 @@ pub fn run() {
             commands::get_preferred_terminal,
             commands::set_preferred_terminal,
             commands::start_claude,
+            commands::check_release_notes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

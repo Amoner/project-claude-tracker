@@ -4,6 +4,7 @@ import { ProjectList } from "./components/ProjectList";
 import { ProjectDetail } from "./components/ProjectDetail";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPage } from "./components/SettingsPage";
+import { ReleaseNotes } from "./components/ReleaseNotes";
 
 type Tab = "dashboard" | "settings";
 
@@ -15,6 +16,7 @@ export default function App() {
   const [hookStatus, setHookStatus] = useState<HookStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [ps, hs] = await Promise.all([
@@ -32,6 +34,7 @@ export default function App() {
       console.error(e);
       setLoading(false);
     });
+    api.checkReleaseNotes().then(setReleaseVersion).catch(console.error);
   }, [refresh]);
 
   const selected = useMemo(
@@ -95,6 +98,12 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
+      {releaseVersion && (
+        <ReleaseNotes
+          version={releaseVersion}
+          onClose={() => setReleaseVersion(null)}
+        />
+      )}
       <header className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-4 py-2">
         <div className="flex items-center gap-6">
           <h1 className="text-sm font-semibold uppercase tracking-wider text-zinc-200">
