@@ -28,6 +28,27 @@ pub fn open_db() -> Result<Db> {
     open_at(&paths::tracker_db()?)
 }
 
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    col: &str,
+    col_type: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = stmt
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .any(|name| name == col);
+    drop(stmt);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {col} {col_type}"),
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn open_at(path: &Path) -> Result<Db> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -67,7 +88,8 @@ impl Db {
                 prompts_count INTEGER DEFAULT 0,
                 notes TEXT,
                 enrichment_synced_at TEXT,
-                archived_at TEXT
+                archived_at TEXT,
+                description TEXT
             );
 
             CREATE TABLE IF NOT EXISTS events (
@@ -91,6 +113,9 @@ impl Db {
             );
             "#,
         )?;
+        // Additive column migrations for DBs created before the column existed.
+        // SQLite has no ADD COLUMN IF NOT EXISTS, so we peek at table_info first.
+        add_column_if_missing(&self.conn, "projects", "description", "TEXT")?;
         Ok(())
     }
 
@@ -297,6 +322,7 @@ impl Db {
         push!(deploy_instructions, "deploy_instructions");
         push!(launch_instructions, "launch_instructions");
         push!(notes, "notes");
+        push!(description, "description");
         if let Some(v) = fields.status_manual {
             sets.push("status_manual = ?");
             vals.push((v as i64).into());
@@ -369,6 +395,7 @@ pub struct Project {
     pub notes: Option<String>,
     pub enrichment_synced_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
+    pub description: Option<String>,
 }
 
 impl Project {
@@ -391,13 +418,14 @@ pub struct ProjectUpdate {
     pub notes: Option<String>,
     pub archived: Option<bool>,
     pub enrichment_synced_at: Option<DateTime<Utc>>,
+    pub description: Option<String>,
 }
 
 const SELECT_PROJECT_ALL_SQL: &str = r#"
     SELECT id, path, name, status, status_manual, github_url, deploy_url, deploy_platform,
            deploy_instructions, launch_instructions, deploy_live_lookup, first_seen_at,
            last_active_at, sessions_started, prompts_count, notes, enrichment_synced_at,
-           archived_at
+           archived_at, description
     FROM projects
 "#;
 
@@ -422,6 +450,7 @@ fn project_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         notes: r.get(15)?,
         enrichment_synced_at: parse(r.get(16)?),
         archived_at: parse(r.get(17)?),
+        description: r.get(18)?,
     })
 }
 

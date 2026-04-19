@@ -34,6 +34,7 @@ pub struct EnrichmentResult {
     pub deploy_platform: Option<String>,
     pub deploy_url: Option<String>,
     pub name: Option<String>,
+    pub description: Option<String>,
 }
 
 /// A project suggested by the IDE-cache / filesystem walk / manual add

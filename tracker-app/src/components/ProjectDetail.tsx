@@ -34,6 +34,8 @@ export function ProjectDetail({
     status: project.status_manual && project.status ? project.status : "",
   });
   const [saving, setSaving] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,8 +46,7 @@ export function ProjectDetail({
       notes: project.notes ?? "",
       status: project.status_manual && project.status ? project.status : "",
     });
-    // Only resetting when the user switches to a different project — otherwise
-    // an in-flight refresh after `onChange` would clobber unsaved edits.
+    setNotesOpen(false);
   }, [project.id]);
 
   const save = async () => {
@@ -64,6 +65,17 @@ export function ProjectDetail({
     }
   };
 
+  const saveNotes = async () => {
+    setNotesSaving(true);
+    try {
+      await onChange({ notes: form.notes || null });
+    } finally {
+      setNotesSaving(false);
+    }
+  };
+
+  const notesDirty = form.notes !== (project.notes ?? "");
+
   const handleStart = async () => {
     setLaunchErr(null);
     try {
@@ -75,12 +87,19 @@ export function ProjectDetail({
 
   return (
     <div className="flex flex-col gap-4 p-6 font-mono text-sm">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-zinc-100">{project.name}</h2>
-          <StatusBadge project={project} />
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <h2 className="truncate text-xl font-semibold text-zinc-100">
+              {project.name}
+            </h2>
+            <StatusBadge project={project} />
+          </div>
+          {project.description && (
+            <p className="text-xs text-zinc-400">{project.description}</p>
+          )}
         </div>
-        <div className="flex gap-2 text-xs">
+        <div className="flex shrink-0 gap-2 text-xs">
           <button
             onClick={handleStart}
             title={`Open a terminal at ${project.path} and run claude`}
@@ -124,6 +143,47 @@ export function ProjectDetail({
           {launchErr}
         </div>
       )}
+
+      <section className="rounded border border-zinc-800 bg-zinc-900">
+        <button
+          onClick={() => setNotesOpen((o) => !o)}
+          className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-xs uppercase tracking-wider text-zinc-400 hover:text-zinc-200"
+        >
+          <span>
+            <span className="inline-block w-3 text-zinc-500">
+              {notesOpen ? "▾" : "▸"}
+            </span>{" "}
+            Notes
+          </span>
+          <span className="text-[10px] normal-case tracking-normal text-zinc-500">
+            {notesDirty
+              ? "unsaved changes"
+              : form.notes.trim()
+                ? `${form.notes.length} chars`
+                : "empty"}
+          </span>
+        </button>
+        {notesOpen && (
+          <div className="flex flex-col gap-2 border-t border-zinc-800 px-4 py-3">
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={6}
+              placeholder="Jot down what you're working on, open questions, links…"
+              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 font-mono text-xs"
+            />
+            <div className="flex justify-end">
+              <button
+                onClick={saveNotes}
+                disabled={notesSaving || !notesDirty}
+                className="rounded bg-emerald-600/80 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
+              >
+                {notesSaving ? "saving…" : "Save notes"}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="grid grid-cols-2 gap-x-6 gap-y-2 rounded border border-zinc-800 bg-zinc-900 p-4 text-xs">
         <KV label="Path" value={project.path} />
@@ -188,14 +248,6 @@ export function ProjectDetail({
             className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
           />
         </Field>
-        <Field label="Notes">
-          <textarea
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            rows={3}
-            className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
-          />
-        </Field>
 
         <div className="flex items-center justify-between pt-2">
           <label className="flex items-center gap-2">
@@ -253,4 +305,3 @@ function Field({
     </div>
   );
 }
-

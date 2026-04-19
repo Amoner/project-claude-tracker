@@ -19,6 +19,7 @@ export type Project = {
   notes: string | null;
   enrichment_synced_at: string | null;
   archived_at: string | null;
+  description: string | null;
   effective_status: string;
 };
 

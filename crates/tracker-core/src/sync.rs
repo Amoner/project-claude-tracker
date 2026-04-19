@@ -51,6 +51,7 @@ pub fn sync_project(db: &Db, p: &Project, opts: &SyncOpts) -> Result<bool> {
         github_url: result.github_url.clone(),
         launch_instructions: result.launch_instructions.clone(),
         deploy_platform: result.deploy_platform.clone(),
+        description: result.description.clone(),
         enrichment_synced_at: Some(Utc::now()),
         ..Default::default()
     };
@@ -78,6 +79,7 @@ pub fn enrich(path: &Path, allow_live_lookup: bool) -> EnrichmentResult {
     out.github_url = git::remote_origin(path);
     out.launch_instructions = launch::infer(path);
     out.name = launch::infer_name(path);
+    out.description = launch::infer_description(path);
     if let Some(platform) = deploy::detect_platform(path) {
         out.deploy_platform = Some(platform.as_str().to_string());
         if allow_live_lookup {

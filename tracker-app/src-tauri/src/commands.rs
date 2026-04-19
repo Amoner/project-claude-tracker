@@ -139,15 +139,13 @@ pub fn update_project(
         name: fields.name,
         status: fields.status,
         status_manual: fields.status_manual,
-        github_url: None,
         deploy_url: fields.deploy_url,
-        deploy_platform: None,
         deploy_instructions: fields.deploy_instructions,
         launch_instructions: fields.launch_instructions,
         notes: fields.notes,
         deploy_live_lookup: fields.deploy_live_lookup,
         archived: fields.archived,
-        enrichment_synced_at: None,
+        ..Default::default()
     };
     db.update_project_fields(id, &update).map_err(err)?;
     db.get_project(id)
