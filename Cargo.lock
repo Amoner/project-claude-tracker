@@ -4592,7 +4592,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4609,7 +4609,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4623,7 +4623,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
