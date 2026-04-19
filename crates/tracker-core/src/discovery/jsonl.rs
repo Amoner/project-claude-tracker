@@ -10,6 +10,8 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use crate::parse_rfc3339;
+
 /// Summary of a single `.jsonl` transcript file.
 #[derive(Debug, Default)]
 pub struct TranscriptSummary {
@@ -62,7 +64,7 @@ pub fn summarize_file(path: &Path) -> Result<TranscriptSummary> {
         if summary.session_id.is_none() {
             summary.session_id = row.session_id.clone();
         }
-        if let Some(ts) = row.timestamp.as_ref().and_then(parse_dt) {
+        if let Some(ts) = row.timestamp.as_deref().and_then(parse_rfc3339) {
             if summary.first_at.map_or(true, |f| ts < f) {
                 summary.first_at = Some(ts);
             }
@@ -78,10 +80,4 @@ pub fn summarize_file(path: &Path) -> Result<TranscriptSummary> {
         }
     }
     Ok(summary)
-}
-
-fn parse_dt(s: &String) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(s)
-        .ok()
-        .map(|d| d.with_timezone(&Utc))
 }

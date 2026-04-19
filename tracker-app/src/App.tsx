@@ -5,6 +5,7 @@ import { ProjectDetail } from "./components/ProjectDetail";
 import { Onboarding } from "./components/Onboarding";
 import { SettingsPage } from "./components/SettingsPage";
 import { ReleaseNotes } from "./components/ReleaseNotes";
+import { FindProjects } from "./components/FindProjects";
 
 type Tab = "dashboard" | "settings";
 
@@ -17,6 +18,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     const [ps, hs] = await Promise.all([
@@ -34,8 +36,11 @@ export default function App() {
       console.error(e);
       setLoading(false);
     });
-    api.checkReleaseNotes().then(setReleaseVersion).catch(console.error);
   }, [refresh]);
+
+  useEffect(() => {
+    api.checkReleaseNotes().then(setReleaseVersion).catch(console.error);
+  }, []);
 
   const selected = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
@@ -104,6 +109,12 @@ export default function App() {
           onClose={() => setReleaseVersion(null)}
         />
       )}
+      {findOpen && (
+        <FindProjects
+          onClose={() => setFindOpen(false)}
+          onImported={refresh}
+        />
+      )}
       <header className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-4 py-2">
         <div className="flex items-center gap-6">
           <h1 className="text-sm font-semibold uppercase tracking-wider text-zinc-200">
@@ -130,6 +141,12 @@ export default function App() {
               {hookStatus.fully_installed ? "hooks ok" : "hooks not installed"}
             </span>
           )}
+          <button
+            onClick={() => setFindOpen(true)}
+            className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+          >
+            Find
+          </button>
           <button
             onClick={handleDiscover}
             disabled={syncing}

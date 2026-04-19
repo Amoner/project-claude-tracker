@@ -41,33 +41,30 @@ pub struct HookStatus {
 
 pub fn status() -> Result<HookStatus> {
     let settings_path = paths::claude_settings()?;
+    let v = load_settings_json(&settings_path)?;
     let mut installed = Vec::new();
     let mut cli_path: Option<PathBuf> = None;
-    if settings_path.exists() {
-        let raw = std::fs::read_to_string(&settings_path)?;
-        let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-        if let Some(events) = v.get("hooks").and_then(|h| h.as_object()) {
-            for event in INSTALLED_EVENTS {
-                let entries = events
-                    .get(*event)
-                    .and_then(|e| e.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-                for entry in entries {
-                    if let Some(inner) = entry.get("hooks").and_then(|h| h.as_array()) {
-                        for h in inner {
-                            let cmd = h
-                                .get("command")
-                                .and_then(|c| c.as_str())
-                                .unwrap_or_default();
-                            if command_is_ours(cmd) {
-                                if !installed.contains(&event.to_string()) {
-                                    installed.push((*event).to_string());
-                                }
-                                if cli_path.is_none() {
-                                    if let Some(p) = extract_cli_path(cmd) {
-                                        cli_path = Some(p);
-                                    }
+    if let Some(events) = v.get("hooks").and_then(|h| h.as_object()) {
+        for event in INSTALLED_EVENTS {
+            let entries = events
+                .get(*event)
+                .and_then(|e| e.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for entry in entries {
+                if let Some(inner) = entry.get("hooks").and_then(|h| h.as_array()) {
+                    for h in inner {
+                        let cmd = h
+                            .get("command")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or_default();
+                        if command_is_ours(cmd) {
+                            if !installed.contains(&event.to_string()) {
+                                installed.push((*event).to_string());
+                            }
+                            if cli_path.is_none() {
+                                if let Some(p) = extract_cli_path(cmd) {
+                                    cli_path = Some(p);
                                 }
                             }
                         }
@@ -232,10 +229,15 @@ fn ensure_object<'a>(v: &'a mut Value, key: &str) -> &'a mut serde_json::Map<Str
     if !v.is_object() {
         *v = json!({});
     }
-    let obj = v.as_object_mut().expect("checked object");
-    obj.entry(key.to_string())
-        .or_insert_with(|| Value::Object(Default::default()));
-    obj.get_mut(key).unwrap().as_object_mut().unwrap()
+    let obj = v.as_object_mut().expect("just set to {}");
+    // Replace anything that isn't an object (null, array, string, …) with a
+    // fresh empty object. Otherwise the `as_object_mut` below would panic.
+    if !obj.get(key).map_or(false, Value::is_object) {
+        obj.insert(key.to_string(), Value::Object(Default::default()));
+    }
+    obj.get_mut(key)
+        .and_then(Value::as_object_mut)
+        .expect("just inserted")
 }
 
 fn backup_before_edit(path: &Path, _current: &Value) -> Result<Option<PathBuf>> {

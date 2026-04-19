@@ -85,19 +85,11 @@ fn summarize_project(dir: &Path) -> Result<Option<DiscoveredProject>> {
         }
     };
 
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default()
-        .to_string();
+    let name = paths::project_name_from_path(&path);
 
     Ok(Some(DiscoveredProject {
         path,
-        name: if name.is_empty() {
-            "(unknown)".into()
-        } else {
-            name
-        },
+        name,
         first_seen_at: first_at.unwrap_or_else(Utc::now),
         last_active_at: last_at,
         sessions_started,

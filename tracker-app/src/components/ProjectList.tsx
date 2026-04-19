@@ -1,4 +1,5 @@
 import { Project } from "../api";
+import { fmtRelative } from "../time";
 import { StatusBadge } from "./StatusBadge";
 
 export function ProjectList({
@@ -36,7 +37,7 @@ export function ProjectList({
                 <StatusBadge project={p} />
               </div>
               <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                <span>{relativeTime(p.last_active_at)}</span>
+                <span>{fmtRelative(p.last_active_at)}</span>
                 <span>·</span>
                 <span>{p.sessions_started}s</span>
                 <span>{p.prompts_count}p</span>
@@ -47,16 +48,4 @@ export function ProjectList({
       })}
     </ul>
   );
-}
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "never";
-  const d = new Date(iso).getTime();
-  const delta = Date.now() - d;
-  const h = delta / 3_600_000;
-  if (h < 1) return `${Math.max(1, Math.round(delta / 60_000))}m ago`;
-  if (h < 24) return `${Math.round(h)}h ago`;
-  const days = h / 24;
-  if (days < 30) return `${Math.round(days)}d ago`;
-  return new Date(iso).toLocaleDateString();
 }

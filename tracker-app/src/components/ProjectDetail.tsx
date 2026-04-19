@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Project, UpdateFields } from "../api";
+import { fmtAbsolute } from "../time";
 import { StatusBadge } from "./StatusBadge";
 
 const MANUAL_STATUS_OPTIONS = [
@@ -127,14 +128,14 @@ export function ProjectDetail({
       <section className="grid grid-cols-2 gap-x-6 gap-y-2 rounded border border-zinc-800 bg-zinc-900 p-4 text-xs">
         <KV label="Path" value={project.path} />
         <KV label="GitHub" value={project.github_url ?? "—"} />
-        <KV label="Last active" value={fmt(project.last_active_at)} />
-        <KV label="First seen" value={fmt(project.first_seen_at)} />
+        <KV label="Last active" value={fmtAbsolute(project.last_active_at)} />
+        <KV label="First seen" value={fmtAbsolute(project.first_seen_at)} />
         <KV label="Sessions" value={String(project.sessions_started)} />
         <KV label="Prompts" value={String(project.prompts_count)} />
         <KV label="Deploy platform" value={project.deploy_platform ?? "—"} />
         <KV
           label="Last enriched"
-          value={fmt(project.enrichment_synced_at)}
+          value={fmtAbsolute(project.enrichment_synced_at)}
         />
       </section>
 
@@ -253,7 +254,3 @@ function Field({
   );
 }
 
-function fmt(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
-}

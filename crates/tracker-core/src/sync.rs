@@ -22,16 +22,18 @@ pub struct SyncOpts {
 
 pub fn sync_all(db: &Db, opts: &SyncOpts) -> Result<usize> {
     let projects = db.list_projects(true)?;
-    let mut n = 0;
-    for p in projects {
-        if p.archived_at.is_some() {
-            continue;
+    db.with_tx(|db| {
+        let mut n = 0;
+        for p in projects {
+            if p.archived_at.is_some() {
+                continue;
+            }
+            if sync_project(db, &p, opts)? {
+                n += 1;
+            }
         }
-        if sync_project(db, &p, opts)? {
-            n += 1;
-        }
-    }
-    Ok(n)
+        Ok(n)
+    })
 }
 
 /// Enrich a single project. Returns true if the DB row was updated.

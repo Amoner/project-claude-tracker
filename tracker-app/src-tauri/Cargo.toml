@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 tracker-core = { path = "../../crates/tracker-core" }
 anyhow.workspace = true
 serde.workspace = true

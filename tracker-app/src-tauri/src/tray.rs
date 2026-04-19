@@ -4,6 +4,7 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 use tracker_core::db::Project;
+use tracker_core::{os, paths};
 
 use crate::AppState;
 
@@ -84,7 +85,7 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
             };
             let Ok(db) = state.db.lock() else { return };
             if let Ok(Some(p)) = db.get_project(id) {
-                let _ = std::process::Command::new("open").arg(&p.path).spawn();
+                let _ = os::open_path(std::path::Path::new(&p.path));
             }
         }
         _ => {}
@@ -92,9 +93,11 @@ fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
 }
 
 fn short_path(p: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    if !home.is_empty() && p.starts_with(&home) {
-        return format!("~{}", &p[home.len()..]);
+    if let Ok(home) = paths::home() {
+        let home = home.to_string_lossy();
+        if !home.is_empty() && p.starts_with(home.as_ref()) {
+            return format!("~{}", &p[home.len()..]);
+        }
     }
     p.to_string()
 }

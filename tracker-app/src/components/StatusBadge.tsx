@@ -11,7 +11,7 @@ const PALETTE: Record<string, string> = {
 };
 
 export function StatusBadge({ project }: { project: Project }) {
-  const status = effectiveStatus(project);
+  const status = project.effective_status;
   const cls = PALETTE[status] ?? PALETTE.idle;
   return (
     <span
@@ -20,16 +20,4 @@ export function StatusBadge({ project }: { project: Project }) {
       {status}
     </span>
   );
-}
-
-export function effectiveStatus(p: Project): string {
-  if (p.status_manual && p.status) return p.status;
-  if (p.archived_at) return "archived";
-  if (p.deploy_url && p.deploy_url.trim()) return "deployed";
-  if (!p.last_active_at) return "stale";
-  const last = new Date(p.last_active_at).getTime();
-  const daysAgo = (Date.now() - last) / 86_400_000;
-  if (daysAgo < 7) return "active";
-  if (daysAgo < 30) return "idle";
-  return "stale";
 }

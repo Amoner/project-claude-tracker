@@ -19,6 +19,7 @@ export type Project = {
   notes: string | null;
   enrichment_synced_at: string | null;
   archived_at: string | null;
+  effective_status: string;
 };
 
 export type HookStatus = {
@@ -32,6 +33,13 @@ export type TerminalInfo = {
   slug: string;
   display_name: string;
   installed: boolean;
+};
+
+export type ScanCandidate = {
+  path: string;
+  name: string;
+  source: string;
+  already_tracked: boolean;
 };
 
 export const api = {
@@ -57,6 +65,13 @@ export const api = {
     invoke<null>("set_preferred_terminal", { terminal }),
   startClaude: (id: number) => invoke<null>("start_claude", { id }),
   checkReleaseNotes: () => invoke<string | null>("check_release_notes"),
+  scanIdeProjects: () => invoke<ScanCandidate[]>("scan_ide_projects"),
+  scanFilesystem: (roots: string[], maxDepth: number) =>
+    invoke<ScanCandidate[]>("scan_filesystem", { roots, maxDepth }),
+  importProjects: (paths: string[]) =>
+    invoke<number>("import_projects", { paths }),
+  addProjectManual: (path: string) =>
+    invoke<Project>("add_project_manual", { path }),
 };
 
 export type UpdateFields = {

@@ -4,26 +4,17 @@ use std::path::Path;
 use std::process::Command;
 
 pub fn remote_origin(path: &Path) -> Option<String> {
-    if !path.join(".git").exists() {
-        return None;
-    }
-    run(path, &["remote", "get-url", "origin"])
-        .and_then(|s| {
-            let s = s.trim();
-            if s.is_empty() {
-                None
-            } else {
-                Some(normalize_github_url(s))
-            }
-        })
-}
-
-pub fn current_branch(path: &Path) -> Option<String> {
-    run(path, &["rev-parse", "--abbrev-ref", "HEAD"]).map(|s| s.trim().to_string())
-}
-
-pub fn dirty(path: &Path) -> Option<bool> {
-    run(path, &["status", "--porcelain"]).map(|s| !s.trim().is_empty())
+    // No `.git` pre-check — `git -C <path> remote get-url origin` will fail
+    // cleanly with a non-zero exit code, and `run` already filters those out.
+    // Pre-checking was a stat-per-project per sync with no correctness benefit.
+    run(path, &["remote", "get-url", "origin"]).and_then(|s| {
+        let s = s.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(normalize_github_url(s))
+        }
+    })
 }
 
 fn run(path: &Path, args: &[&str]) -> Option<String> {

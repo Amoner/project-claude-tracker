@@ -1,11 +1,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracker_core::db::{Project, ProjectUpdate};
+use tracker_core::discovery::ScanCandidate;
+use tracker_core::status::{self, StatusInputs};
 use tracker_core::terminal::Terminal;
-use tracker_core::{discovery, hooks, paths, sync};
+use tracker_core::{discovery, hooks, os, paths, sync};
 
 use crate::AppState;
 
@@ -13,6 +16,41 @@ type Shared<'a> = State<'a, Arc<AppState>>;
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     format!("{e:#}")
+}
+
+#[derive(Serialize)]
+pub struct ProjectDto {
+    #[serde(flatten)]
+    project: Project,
+    effective_status: String,
+}
+
+impl From<Project> for ProjectDto {
+    fn from(p: Project) -> Self {
+        let effective = effective_status(&p);
+        Self {
+            project: p,
+            effective_status: effective,
+        }
+    }
+}
+
+fn effective_status(p: &Project) -> String {
+    // User-set override wins, but only when both the manual flag AND a
+    // non-empty status string are present.
+    if p.status_manual {
+        if let Some(s) = p.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            return s.to_string();
+        }
+    }
+    status::infer(&StatusInputs {
+        last_active_at: p.last_active_at,
+        deploy_url: p.deploy_url.as_deref(),
+        archived_at: p.archived_at,
+        now: Utc::now(),
+    })
+    .as_str()
+    .to_string()
 }
 
 #[derive(Serialize)]
@@ -38,21 +76,34 @@ impl From<hooks::HookStatus> for HookStatusDto {
 }
 
 #[tauri::command]
-pub fn list_projects(state: Shared<'_>, include_archived: bool) -> Result<Vec<Project>, String> {
+pub fn list_projects(
+    state: Shared<'_>,
+    include_archived: bool,
+) -> Result<Vec<ProjectDto>, String> {
     let db = state.db.lock().map_err(err)?;
-    db.list_projects(include_archived).map_err(err)
+    Ok(db
+        .list_projects(include_archived)
+        .map_err(err)?
+        .into_iter()
+        .map(ProjectDto::from)
+        .collect())
 }
 
 #[tauri::command]
-pub fn get_project(state: Shared<'_>, id: i64) -> Result<Option<Project>, String> {
+pub fn get_project(state: Shared<'_>, id: i64) -> Result<Option<ProjectDto>, String> {
     let db = state.db.lock().map_err(err)?;
-    db.get_project(id).map_err(err)
+    Ok(db.get_project(id).map_err(err)?.map(ProjectDto::from))
 }
 
 #[tauri::command]
-pub fn recent_active(state: Shared<'_>, limit: usize) -> Result<Vec<Project>, String> {
+pub fn recent_active(state: Shared<'_>, limit: usize) -> Result<Vec<ProjectDto>, String> {
     let db = state.db.lock().map_err(err)?;
-    db.recent_active(limit).map_err(err)
+    Ok(db
+        .recent_active(limit)
+        .map_err(err)?
+        .into_iter()
+        .map(ProjectDto::from)
+        .collect())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -82,7 +133,7 @@ pub fn update_project(
     state: Shared<'_>,
     id: i64,
     fields: UpdateFieldsDto,
-) -> Result<Project, String> {
+) -> Result<ProjectDto, String> {
     let db = state.db.lock().map_err(err)?;
     let update = ProjectUpdate {
         name: fields.name,
@@ -101,6 +152,7 @@ pub fn update_project(
     db.update_project_fields(id, &update).map_err(err)?;
     db.get_project(id)
         .map_err(err)?
+        .map(ProjectDto::from)
         .ok_or_else(|| "project not found after update".into())
 }
 
@@ -146,29 +198,7 @@ pub fn uninstall_hooks() -> Result<HookStatusDto, String> {
 
 #[tauri::command]
 pub fn open_in_finder(path: String) -> Result<(), String> {
-    // macOS: `open <path>` reveals in Finder. Best-effort; no hard error.
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(&path)
-            .spawn()
-            .map_err(err)?;
-    }
-    Ok(())
+    os::open_path(std::path::Path::new(&path)).map_err(err)
 }
 
 #[derive(Serialize)]
@@ -250,28 +280,39 @@ pub fn check_release_notes(
 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&url)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .map_err(err)?;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", &url])
-            .spawn()
-            .map_err(err)?;
-    }
-    Ok(())
+    os::open_url(&url).map_err(err)
+}
+
+#[tauri::command]
+pub fn scan_ide_projects(state: Shared<'_>) -> Result<Vec<ScanCandidate>, String> {
+    let db = state.db.lock().map_err(err)?;
+    discovery::scan_ide(&db).map_err(err)
+}
+
+#[tauri::command]
+pub fn scan_filesystem(
+    state: Shared<'_>,
+    roots: Vec<String>,
+    max_depth: usize,
+) -> Result<Vec<ScanCandidate>, String> {
+    let db = state.db.lock().map_err(err)?;
+    discovery::scan_filesystem(&db, &roots, max_depth).map_err(err)
+}
+
+#[tauri::command]
+pub fn import_projects(state: Shared<'_>, paths: Vec<String>) -> Result<usize, String> {
+    let db = state.db.lock().map_err(err)?;
+    discovery::import_paths(&db, &paths).map_err(err)
+}
+
+#[tauri::command]
+pub fn add_project_manual(state: Shared<'_>, path: String) -> Result<ProjectDto, String> {
+    let db = state.db.lock().map_err(err)?;
+    let added = discovery::add_manual(&db, &path).map_err(err)?;
+    db.get_project_by_path(&added)
+        .map_err(err)?
+        .map(ProjectDto::from)
+        .ok_or_else(|| "project not found after add".into())
 }
 
 /// Locate the tracker-cli binary.

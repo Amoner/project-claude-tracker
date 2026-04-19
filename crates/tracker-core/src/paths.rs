@@ -1,7 +1,32 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
+
+/// Project display name from a path's last component. Returns `"(unknown)"`
+/// when the path is empty, has no file name, or has a non-UTF-8 name.
+pub fn project_name_from_path(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "(unknown)".to_string())
+}
+
+/// Expand a leading `~` to the user's home directory. Non-tilde input and
+/// tilde-with-user forms (`~alice/…`) are returned unchanged.
+pub fn expand_tilde(input: &str) -> PathBuf {
+    if let Some(rest) = input.strip_prefix("~/") {
+        if let Ok(h) = home() {
+            return h.join(rest);
+        }
+    } else if input == "~" {
+        if let Ok(h) = home() {
+            return h;
+        }
+    }
+    PathBuf::from(input)
+}
 
 pub fn home() -> Result<PathBuf> {
     dirs::home_dir().ok_or_else(|| anyhow!("could not locate home directory"))

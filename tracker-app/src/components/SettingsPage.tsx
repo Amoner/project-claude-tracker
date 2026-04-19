@@ -75,7 +75,9 @@ export function SettingsPage({
                 : "text-amber-300"
             }
           >
-            {hookStatus.fully_installed ? "all 5 events installed" : "incomplete"}
+            {hookStatus.fully_installed
+              ? `all ${hookStatus.installed_events.length} events installed`
+              : "incomplete"}
           </span>
         </div>
         <div className="mt-4 flex gap-2">

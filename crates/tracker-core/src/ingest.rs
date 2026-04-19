@@ -44,11 +44,7 @@ pub fn ingest_event(event_name: &str, stdin_raw: &str, db: &Db) -> Result<Option
     };
 
     let path = PathBuf::from(cwd);
-    let name_hint = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("(unknown)")
-        .to_string();
+    let name_hint = paths::project_name_from_path(&path);
 
     let project_id = db.upsert_project_by_path(&path, &name_hint)?;
     let now = Utc::now();

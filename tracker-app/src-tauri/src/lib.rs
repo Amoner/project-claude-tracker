@@ -22,6 +22,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let db = open_db().expect("failed to open tracker db");
             app.manage(Arc::new(AppState {
@@ -47,6 +48,10 @@ pub fn run() {
             commands::set_preferred_terminal,
             commands::start_claude,
             commands::check_release_notes,
+            commands::scan_ide_projects,
+            commands::scan_filesystem,
+            commands::import_projects,
+            commands::add_project_manual,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

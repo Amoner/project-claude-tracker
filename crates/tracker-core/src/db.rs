@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -36,6 +37,9 @@ pub fn open_at(path: &Path) -> Result<Db> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // Concurrent hook processes (two Claude sessions in parallel) can briefly
+    // contend on writes. Wait rather than failing SQLITE_BUSY and dropping events.
+    conn.busy_timeout(Duration::from_secs(3))?;
     let db = Db { conn };
     db.migrate()?;
     Ok(db)
@@ -219,19 +223,20 @@ impl Db {
     }
 
     /// Run a closure inside a SQLite transaction, committing on Ok and
-    /// rolling back on Err.
+    /// rolling back on Err. If the closure panics the rollback runs via
+    /// `Transaction`'s `Drop` impl, so the DB is never left mid-write.
     pub fn with_tx<T, F>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&Self) -> Result<T>,
     {
-        self.conn.execute_batch("BEGIN")?;
+        let tx = self.conn.unchecked_transaction()?;
         match f(self) {
             Ok(v) => {
-                self.conn.execute_batch("COMMIT")?;
+                tx.commit()?;
                 Ok(v)
             }
             Err(e) => {
-                let _ = self.conn.execute_batch("ROLLBACK");
+                drop(tx);
                 Err(e)
             }
         }
@@ -397,10 +402,7 @@ const SELECT_PROJECT_ALL_SQL: &str = r#"
 "#;
 
 fn project_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
-    fn parse_dt(s: Option<String>) -> Option<DateTime<Utc>> {
-        s.and_then(|v| DateTime::parse_from_rfc3339(&v).ok())
-            .map(|d| d.with_timezone(&Utc))
-    }
+    let parse = |s: Option<String>| s.as_deref().and_then(crate::parse_rfc3339);
     Ok(Project {
         id: r.get(0)?,
         path: r.get(1)?,
@@ -413,13 +415,13 @@ fn project_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
         deploy_instructions: r.get(8)?,
         launch_instructions: r.get(9)?,
         deploy_live_lookup: r.get::<_, i64>(10)? != 0,
-        first_seen_at: parse_dt(r.get(11)?).unwrap_or_else(Utc::now),
-        last_active_at: parse_dt(r.get(12)?),
+        first_seen_at: parse(r.get(11)?).unwrap_or_else(Utc::now),
+        last_active_at: parse(r.get(12)?),
         sessions_started: r.get(13)?,
         prompts_count: r.get(14)?,
         notes: r.get(15)?,
-        enrichment_synced_at: parse_dt(r.get(16)?),
-        archived_at: parse_dt(r.get(17)?),
+        enrichment_synced_at: parse(r.get(16)?),
+        archived_at: parse(r.get(17)?),
     })
 }
 
