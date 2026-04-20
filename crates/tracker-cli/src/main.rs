@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use serde::Serialize;
 use tracker_core::{discovery, hooks, ingest, sync};
 
 #[derive(Parser)]
@@ -32,6 +33,13 @@ enum Cmd {
     },
     /// Print every known project as a simple TSV.
     List,
+    /// Print the most-recently-active projects as JSON. Used by the
+    /// `/claude-tracker:recent` slash command.
+    Recent {
+        /// Maximum number of projects to return.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Print the current hook-install status and DB path.
     Doctor,
     /// Install global Claude Code hooks that call this binary.
@@ -106,6 +114,11 @@ fn run(cmd: &Cmd) -> Result<()> {
                 )?;
             }
         }
+        Cmd::Recent { limit } => {
+            let projects = db.recent_active(*limit)?;
+            let out: Vec<RecentEntry> = projects.into_iter().map(RecentEntry::from).collect();
+            println!("{}", serde_json::to_string(&out)?);
+        }
         Cmd::Doctor => {
             let status = hooks::status()?;
             println!("settings.json: {}", status.settings_path.display());
@@ -140,6 +153,48 @@ fn run(cmd: &Cmd) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+struct RecentEntry {
+    name: String,
+    path: String,
+    last_active_at: Option<String>,
+    sessions_started: i64,
+    prompts_count: i64,
+    effective_status: String,
+}
+
+impl From<tracker_core::db::Project> for RecentEntry {
+    fn from(p: tracker_core::db::Project) -> Self {
+        let effective = if p.status_manual {
+            p.status
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        }
+        .unwrap_or_else(|| {
+            tracker_core::status::infer(&tracker_core::status::StatusInputs {
+                last_active_at: p.last_active_at,
+                deploy_url: p.deploy_url.as_deref(),
+                archived_at: p.archived_at,
+                now: chrono::Utc::now(),
+            })
+            .as_str()
+            .to_string()
+        });
+        RecentEntry {
+            name: p.name,
+            path: p.path,
+            last_active_at: p.last_active_at.map(|t| t.to_rfc3339()),
+            sessions_started: p.sessions_started,
+            prompts_count: p.prompts_count,
+            effective_status: effective,
+        }
+    }
 }
 
 fn init_tracing() {

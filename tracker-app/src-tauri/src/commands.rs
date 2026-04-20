@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use tracker_core::db::{Project, ProjectUpdate};
 use tracker_core::discovery::ScanCandidate;
+use tracker_core::plugin::PluginInstall;
 use tracker_core::status::{self, StatusInputs};
 use tracker_core::terminal::Terminal;
-use tracker_core::{discovery, hooks, os, paths, sync};
+use tracker_core::{discovery, hooks, os, paths, plugin, sync};
 
 use crate::AppState;
 
@@ -176,6 +177,11 @@ pub fn run_discover(state: Shared<'_>) -> Result<usize, String> {
 #[tauri::command]
 pub fn get_hook_status() -> Result<HookStatusDto, String> {
     hooks::status().map(Into::into).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_plugin_status() -> Option<PluginInstall> {
+    plugin::find_installed()
 }
 
 #[tauri::command]

@@ -43,6 +43,11 @@ export type ScanCandidate = {
   already_tracked: boolean;
 };
 
+export type PluginInstall = {
+  path: string;
+  version: string | null;
+};
+
 export const api = {
   listProjects: (includeArchived = false) =>
     invoke<Project[]>("list_projects", { includeArchived }),
@@ -73,6 +78,7 @@ export const api = {
     invoke<number>("import_projects", { paths }),
   addProjectManual: (path: string) =>
     invoke<Project>("add_project_manual", { path }),
+  getPluginStatus: () => invoke<PluginInstall | null>("get_plugin_status"),
 };
 
 export type UpdateFields = {

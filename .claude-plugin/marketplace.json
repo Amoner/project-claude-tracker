@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-tracker",
+  "version": "1.0.0",
+  "description": "Claude Tracker — auto-track every Claude Code project's sessions, prompts, and metadata",
+  "owner": {
+    "name": "Amoner",
+    "email": "am0n3r@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "claude-tracker",
+      "description": "Auto-track every Claude Code project: session counts, prompt counts, last-active times, per-project metadata. Pairs with the Claude Tracker desktop dashboard.",
+      "version": "0.2.1",
+      "author": {
+        "name": "Amoner",
+        "email": "am0n3r@gmail.com"
+      },
+      "source": "./plugins/claude-tracker",
+      "category": "productivity"
+    }
+  ]
+}

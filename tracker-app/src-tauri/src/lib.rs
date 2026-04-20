@@ -52,6 +52,7 @@ pub fn run() {
             commands::scan_filesystem,
             commands::import_projects,
             commands::add_project_manual,
+            commands::get_plugin_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

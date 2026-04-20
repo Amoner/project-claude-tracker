@@ -8,3 +8,6 @@
 .env.local
 /tracker-app/src-tauri/gen
 /tracker-app/src-tauri/bin/tracker-cli-*
+# Plugin per-arch binaries are produced by CI on plugin-v* tags; don't commit
+# dev-built copies from `cargo build`.
+/plugins/claude-tracker/bin/tracker-cli-*

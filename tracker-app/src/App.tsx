@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, HookStatus, Project } from "./api";
+import { api, HookStatus, PluginInstall, Project } from "./api";
 import { ProjectList } from "./components/ProjectList";
 import { ProjectDetail } from "./components/ProjectDetail";
 import { Onboarding } from "./components/Onboarding";
@@ -15,18 +15,21 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [hookStatus, setHookStatus] = useState<HookStatus | null>(null);
+  const [pluginStatus, setPluginStatus] = useState<PluginInstall | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const [findOpen, setFindOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [ps, hs] = await Promise.all([
+    const [ps, hs, plug] = await Promise.all([
       api.listProjects(false),
       api.getHookStatus(),
+      api.getPluginStatus().catch(() => null),
     ]);
     setProjects(ps);
     setHookStatus(hs);
+    setPluginStatus(plug);
     setLoading(false);
     if (selectedId == null && ps.length) setSelectedId(ps[0].id);
   }, [selectedId]);
@@ -87,18 +90,13 @@ export default function App() {
   }
 
   const needsOnboarding =
-    hookStatus != null && !hookStatus.fully_installed && projects.length === 0;
+    hookStatus != null &&
+    !hookStatus.fully_installed &&
+    pluginStatus == null &&
+    projects.length === 0;
 
   if (needsOnboarding) {
-    return (
-      <Onboarding
-        onInstalled={async () => {
-          await api.installHooks();
-          await api.runDiscover();
-          await refresh();
-        }}
-      />
-    );
+    return <Onboarding onRefresh={refresh} />;
   }
 
   return (

@@ -1,0 +1,9 @@
+{
+  "name": "claude-tracker",
+  "version": "0.2.1",
+  "description": "Auto-track every Claude Code project: session counts, prompt counts, last-active times, per-project metadata. Pairs with the Claude Tracker desktop dashboard.",
+  "author": {
+    "name": "Amoner",
+    "email": "am0n3r@gmail.com"
+  }
+}

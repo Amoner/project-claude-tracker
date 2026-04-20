@@ -1,0 +1,104 @@
+name: Plugin Release
+
+on:
+  push:
+    tags:
+      - 'plugin-v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: tracker-cli-darwin-arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            name: tracker-cli-darwin-x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: tracker-cli-linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Build tracker-cli
+        run: cargo build -p tracker-cli --release --target ${{ matrix.target }}
+
+      - name: Stage binary
+        run: |
+          mkdir -p out
+          cp target/${{ matrix.target }}/release/tracker-cli out/${{ matrix.name }}
+          chmod +x out/${{ matrix.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/${{ matrix.name }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Stage binaries into plugin/bin
+        run: |
+          mkdir -p plugins/claude-tracker/bin
+          cp artifacts/tracker-cli-darwin-arm64 plugins/claude-tracker/bin/
+          cp artifacts/tracker-cli-darwin-x64   plugins/claude-tracker/bin/
+          cp artifacts/tracker-cli-linux-x64    plugins/claude-tracker/bin/
+          chmod +x plugins/claude-tracker/bin/tracker-cli-*
+
+      - name: Commit binaries to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f plugins/claude-tracker/bin/tracker-cli-darwin-arm64 \
+                    plugins/claude-tracker/bin/tracker-cli-darwin-x64 \
+                    plugins/claude-tracker/bin/tracker-cli-linux-x64
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Publish plugin binaries for ${GITHUB_REF_NAME}"
+            git push origin main
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            Claude Tracker plugin release ${{ github.ref_name }}.
+
+            **Install:**
+            ```
+            /plugin marketplace add Amoner/project-claude-tracker
+            /plugin install claude-tracker
+            ```
+          files: |
+            artifacts/tracker-cli-darwin-arm64
+            artifacts/tracker-cli-darwin-x64
+            artifacts/tracker-cli-linux-x64

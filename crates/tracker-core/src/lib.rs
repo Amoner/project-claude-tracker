@@ -5,6 +5,7 @@ pub mod hooks;
 pub mod ingest;
 pub mod os;
 pub mod paths;
+pub mod plugin;
 pub mod status;
 pub mod sync;
 pub mod terminal;
