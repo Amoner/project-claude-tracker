@@ -152,18 +152,25 @@ impl Terminal {
         let c = match self {
             #[cfg(target_os = "macos")]
             Terminal::Ghostty => {
-                // `ghostty +new-window` is Ghostty's CLI action: connects to the
-                // running instance via IPC and exits without spawning a second GUI.
-                // `--command=STRING` is a single argv element that Ghostty
-                // shell-splits itself, avoiding the extra-tabs issue we saw when
-                // passing `-e SHELL ARGS...` as separate elements.
-                let bin = self
-                    .binary()
-                    .ok_or_else(|| anyhow!("ghostty binary not found"))?;
-                let mut c = Command::new(bin);
-                c.arg("+new-window")
-                    .arg(format!("--working-directory={cwd_str}"))
-                    .arg(format!("--command={shell} -l -i -c {cmd}"));
+                // `ghostty +new-window` is D-Bus-based and Linux-only; on
+                // macOS it can spawn duplicate windows (or the configured
+                // initial window plus the requested one). The documented
+                // macOS automation path is AppleScript via Ghostty's
+                // scripting dictionary, which routes through the running
+                // app instance and cold-launches it if needed.
+                let escaped_cwd = escape_applescript(&cwd_str);
+                let inner = format!("{shell} -l -i -c {cmd}");
+                let escaped_cmd = escape_applescript(&inner);
+                let script = format!(
+                    r#"tell application "Ghostty"
+    set cfg to new surface configuration
+    set initial working directory of cfg to "{escaped_cwd}"
+    set command of cfg to "{escaped_cmd}"
+    set win to new window with configuration cfg
+end tell"#,
+                );
+                let mut c = Command::new("osascript");
+                c.args(["-e", &script]);
                 c
             }
             #[cfg(target_os = "macos")]
@@ -383,28 +390,22 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn build_command_ghostty() {
+    fn build_command_ghostty_uses_applescript() {
         if !Terminal::Ghostty.is_installed() {
             return;
         }
         let cmd = Terminal::Ghostty
             .build_command(Path::new("/tmp/x"), "claude")
             .unwrap();
-        let prog = cmd.get_program().to_string_lossy().into_owned();
-        assert!(prog.contains("ghostty"), "expected ghostty binary, got: {prog}");
+        assert_eq!(cmd.get_program(), "osascript");
         let args = args_of(&cmd);
-        assert!(args.iter().any(|a| a == "+new-window"), "missing +new-window");
+        let script = &args[1];
+        assert!(script.contains(r#"tell application "Ghostty""#));
+        assert!(script.contains("new surface configuration"));
+        assert!(script.contains("initial working directory of cfg to \"/tmp/x\""));
         assert!(
-            args.iter().any(|a| a == "--working-directory=/tmp/x"),
-            "missing --working-directory"
-        );
-        let command_arg = args
-            .iter()
-            .find(|a| a.starts_with("--command="))
-            .expect("--command= arg missing");
-        assert!(
-            command_arg.ends_with(" -l -i -c claude"),
-            "unexpected --command value: {command_arg}"
+            script.contains(" -l -i -c claude"),
+            "expected login+interactive shell wrapper, got script: {script}"
         );
     }
 

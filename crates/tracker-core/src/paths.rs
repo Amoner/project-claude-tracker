@@ -32,6 +32,22 @@ pub fn home() -> Result<PathBuf> {
     dirs::home_dir().ok_or_else(|| anyhow!("could not locate home directory"))
 }
 
+/// Claude Code's `using-git-worktrees` skill spins up throwaway worktrees at
+/// `<repo>/.claude/worktrees/<slug>` for parallel subagent runs. They are not
+/// projects in their own right and pollute the list, so we skip them during
+/// automatic ingest/discovery. Manual `add_project_manual` is unaffected.
+pub fn is_ephemeral_worktree(path: &Path) -> bool {
+    let mut comps = path.components().peekable();
+    while let Some(c) = comps.next() {
+        if c.as_os_str() == ".claude" {
+            if comps.peek().map(|n| n.as_os_str()) == Some(std::ffi::OsStr::new("worktrees")) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub fn claude_dir() -> Result<PathBuf> {
     Ok(home()?.join(".claude"))
 }
@@ -77,5 +93,68 @@ pub fn append_log(file_name: &str, line: &str) {
         .open(dir.join(file_name))
     {
         let _ = writeln!(f, "[{}] {line}", chrono::Utc::now().to_rfc3339());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ephemeral_worktree_matches_agent_dirs() {
+        assert!(is_ephemeral_worktree(Path::new(
+            "/Users/x/Documents/AoG/.claude/worktrees/agent-a0f53934fd7b0f9c1"
+        )));
+        assert!(is_ephemeral_worktree(Path::new(
+            "/Users/x/Documents/AoG/.claude/worktrees/great-ptolemy"
+        )));
+        assert!(is_ephemeral_worktree(Path::new(
+            "/Users/x/Documents/AoG/.claude/worktrees/agent-ac/src"
+        )));
+    }
+
+    #[test]
+    fn ephemeral_worktree_ignores_normal_paths() {
+        assert!(!is_ephemeral_worktree(Path::new(
+            "/Users/x/Documents/AoG"
+        )));
+        assert!(!is_ephemeral_worktree(Path::new(
+            "/Users/x/Documents/AoG/.claude"
+        )));
+        assert!(!is_ephemeral_worktree(Path::new(
+            "/Users/x/Documents/AoG/.claude/projects/foo"
+        )));
+        // A literal directory named `worktrees` outside `.claude/` is not ours.
+        assert!(!is_ephemeral_worktree(Path::new(
+            "/Users/x/worktrees/proj"
+        )));
+        // Lookalike folder names must not match.
+        assert!(!is_ephemeral_worktree(Path::new(
+            "/Users/x/.claudefoo/worktrees/y"
+        )));
+        assert!(!is_ephemeral_worktree(Path::new(
+            "/Users/x/.claude/worktreesfoo"
+        )));
+    }
+
+    #[test]
+    fn ephemeral_worktree_trailing_slash_and_deep_nesting() {
+        assert!(is_ephemeral_worktree(Path::new(
+            "/Users/x/.claude/worktrees/"
+        )));
+        assert!(is_ephemeral_worktree(Path::new(
+            "/Users/x/repo/.claude/worktrees/agent-ab/src/components/App.tsx"
+        )));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ephemeral_worktree_windows_paths() {
+        assert!(is_ephemeral_worktree(Path::new(
+            r"C:\Users\x\repo\.claude\worktrees\agent-ab"
+        )));
+        assert!(!is_ephemeral_worktree(Path::new(
+            r"C:\Users\x\repo"
+        )));
     }
 }

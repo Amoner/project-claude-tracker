@@ -85,6 +85,11 @@ fn summarize_project(dir: &Path) -> Result<Option<DiscoveredProject>> {
         }
     };
 
+    // Subagent worktrees aren't real projects.
+    if paths::is_ephemeral_worktree(&path) {
+        return Ok(None);
+    }
+
     let name = paths::project_name_from_path(&path);
 
     Ok(Some(DiscoveredProject {
@@ -95,4 +100,37 @@ fn summarize_project(dir: &Path) -> Result<Option<DiscoveredProject>> {
         sessions_started,
         prompts_count: user_prompts,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn summarize_project_skips_worktree_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let jsonl = dir.path().join("session.jsonl");
+        fs::write(
+            &jsonl,
+            r#"{"type":"system","cwd":"/Users/x/AoG/.claude/worktrees/agent-ab","timestamp":"2026-05-22T00:00:00Z"}"#,
+        )
+        .unwrap();
+        let got = summarize_project(dir.path()).unwrap();
+        assert!(got.is_none(), "worktree cwd should not summarize as project");
+    }
+
+    #[test]
+    fn summarize_project_returns_dp_for_normal_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let jsonl = dir.path().join("session.jsonl");
+        fs::write(
+            &jsonl,
+            r#"{"type":"user","cwd":"/Users/x/proj","timestamp":"2026-05-22T00:00:00Z","message":{"role":"user"}}"#,
+        )
+        .unwrap();
+        let got = summarize_project(dir.path()).unwrap().unwrap();
+        assert_eq!(got.path.to_string_lossy(), "/Users/x/proj");
+        assert_eq!(got.prompts_count, 1);
+    }
 }

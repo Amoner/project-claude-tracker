@@ -360,6 +360,35 @@ impl Db {
         Ok(())
     }
 
+    /// Delete projects whose path lives under `<repo>/.claude/worktrees/`
+    /// (subagent scratch dirs). Returns the number of rows removed. Events
+    /// cascade-delete via the foreign-key constraint.
+    ///
+    /// Filtering happens in Rust via `paths::is_ephemeral_worktree` so the
+    /// same component-aware predicate applies on every platform — a
+    /// SQL `LIKE` pattern would silently miss Windows backslash paths.
+    pub fn purge_ephemeral_worktrees(&self) -> Result<usize> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, path FROM projects")?;
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(Result::ok)
+            .filter(|(_, p)| paths::is_ephemeral_worktree(Path::new(p)))
+            .collect();
+        drop(stmt);
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        for (id, _) in &rows {
+            self.conn
+                .execute("DELETE FROM projects WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(rows.len())
+    }
+
     pub fn recent_active(&self, limit: usize) -> Result<Vec<Project>> {
         let sql = format!(
             "{SELECT_PROJECT_ALL_SQL} WHERE archived_at IS NULL AND last_active_at IS NOT NULL \
@@ -520,6 +549,32 @@ mod tests {
         assert_eq!(db.get_setting("pref").unwrap().as_deref(), Some("ghostty"));
         db.set_setting("pref", "wezterm").unwrap();
         assert_eq!(db.get_setting("pref").unwrap().as_deref(), Some("wezterm"));
+    }
+
+    #[test]
+    fn purge_ephemeral_worktrees_removes_only_worktree_rows() {
+        let (_d, db) = tmp_db();
+        let keep = db
+            .upsert_project_by_path(Path::new("/Users/x/Documents/AoG"), "AoG")
+            .unwrap();
+        let _ephem1 = db
+            .upsert_project_by_path(
+                Path::new("/Users/x/Documents/AoG/.claude/worktrees/agent-ac"),
+                "agent-ac",
+            )
+            .unwrap();
+        let _ephem2 = db
+            .upsert_project_by_path(
+                Path::new("/Users/x/Documents/AoG/.claude/worktrees/great-ptolemy"),
+                "great-ptolemy",
+            )
+            .unwrap();
+
+        let removed = db.purge_ephemeral_worktrees().unwrap();
+        assert_eq!(removed, 2);
+        let rows = db.list_projects(true).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, keep);
     }
 
     #[test]

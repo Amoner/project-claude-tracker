@@ -44,6 +44,14 @@ pub fn ingest_event(event_name: &str, stdin_raw: &str, db: &Db) -> Result<Option
     };
 
     let path = PathBuf::from(cwd);
+
+    // Subagent worktrees under `<repo>/.claude/worktrees/` are ephemeral and
+    // shouldn't pollute the project list. The hook still returns success so
+    // Claude Code isn't affected.
+    if paths::is_ephemeral_worktree(&path) {
+        return Ok(None);
+    }
+
     let name_hint = paths::project_name_from_path(&path);
 
     let project_id = db.upsert_project_by_path(&path, &name_hint)?;
@@ -118,6 +126,53 @@ mod tests {
         ingest_event("UserPromptSubmit", &payload, &db).unwrap();
         let p = db.get_project_by_path(&PathBuf::from("/tmp/proj")).unwrap().unwrap();
         assert_eq!(p.prompts_count, 2);
+    }
+
+    #[test]
+    fn ephemeral_worktree_cwd_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_at(&dir.path().join("t.sqlite")).unwrap();
+        let payload = serde_json::json!({
+            "session_id": "s1",
+            "cwd": "/Users/x/Documents/AoG/.claude/worktrees/agent-abc",
+            "hook_event_name": "SessionStart"
+        })
+        .to_string();
+        let out = ingest_event("SessionStart", &payload, &db).unwrap();
+        assert!(out.is_none());
+        assert!(db.list_projects(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn missing_cwd_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_at(&dir.path().join("t.sqlite")).unwrap();
+        // Valid JSON but no `cwd` field.
+        let payload = r#"{"session_id":"s1","hook_event_name":"Stop"}"#;
+        let out = ingest_event("Stop", payload, &db).unwrap();
+        assert!(out.is_none());
+        assert!(db.list_projects(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn whitespace_cwd_is_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_at(&dir.path().join("t.sqlite")).unwrap();
+        let payload = r#"{"cwd":"   ","hook_event_name":"SessionStart"}"#;
+        let out = ingest_event("SessionStart", payload, &db).unwrap();
+        assert!(out.is_none());
+        assert!(db.list_projects(true).unwrap().is_empty());
+    }
+
+    #[test]
+    fn malformed_json_errors_but_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open_at(&dir.path().join("t.sqlite")).unwrap();
+        // ingest_event surfaces the parse error; the public wrapper
+        // `ingest_from_stdin` swallows it into the log file.
+        let out = ingest_event("SessionStart", "{not json", &db);
+        assert!(out.is_err());
+        assert!(db.list_projects(true).unwrap().is_empty());
     }
 
     #[test]

@@ -25,6 +25,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let db = open_db().expect("failed to open tracker db");
+            // Drop any ephemeral subagent-worktree rows leaked in by earlier
+            // versions before the ingest filter existed.
+            if let Ok(n) = db.purge_ephemeral_worktrees() {
+                if n > 0 {
+                    tracing::info!("purged {n} ephemeral worktree project rows");
+                }
+            }
             app.manage(Arc::new(AppState {
                 db: Mutex::new(db),
             }));
